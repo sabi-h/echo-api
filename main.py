@@ -2,7 +2,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from piccolo.engine import engine_finder
-from app.routers import auth, posts
+from app import auth_router
+from app import posts_router
 import os
 
 
@@ -24,6 +25,7 @@ app = FastAPI(
     description="Simple API for posts with voice and text",
     version="1.0.0",
     lifespan=lifespan,  # Use lifespan instead of on_event
+    swagger_ui_parameters={"persistAuthorization": True},  # This keeps your authorization between refreshes
 )
 
 # CORS middleware for React Native
@@ -40,8 +42,8 @@ os.makedirs("uploads", exist_ok=True)
 
 
 # Include routers
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(posts.router, prefix="/api/posts", tags=["Posts"])
+app.include_router(auth_router.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(posts_router.router, prefix="/api/posts", tags=["Posts"])
 
 
 @app.get("/")

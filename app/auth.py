@@ -4,11 +4,12 @@ from passlib.context import CryptContext
 from app.tables import User
 from app import schemas
 from typing import Optional
+import os
 
 # Security configurations
-SECRET_KEY = "wkvnuivhjsbjsbhjfnsiufvhewhfjsfnedhjshjbshjdkkdnfjewds"  # Change this!
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+SECRET_KEY = os.getenv("SECRET_KEY", "wkvnuivhjsbjsbhjfnsiufvhewhfjsfnedhjshjbshjdkkdnfjewds")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

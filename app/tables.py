@@ -12,9 +12,9 @@ class User(Table, tablename="users"):
 
 
 class Post(Table, tablename="posts"):
-    id = Integer(primary_key=True)
+    id = Serial(primary_key=True)  # Changed from Integer to Serial for consistency
     text_content = Text(null=True)
-    voice_file_path = Varchar(length=255, null=True)
+    voice_file_path = Text(null=True)  # Stores Supabase URL (increased length for full URLs)
     author = ForeignKey(references=User, null=False)
     created_at = Timestamp(default=TimestampNow())
     updated_at = Timestamp(null=True)

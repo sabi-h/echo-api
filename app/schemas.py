@@ -48,7 +48,7 @@ class PostCreate(PostBase):
 class PostResponse(PostBase):
     id: int
     voice_file_path: Optional[str] = None
-    author: dict
+    author: int
     created_at: datetime
     updated_at: Optional[datetime] = None
 

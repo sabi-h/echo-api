@@ -56,6 +56,36 @@ class PostResponse(PostBase):
         from_attributes = True
 
 
+class PostResponseWithOriginal(PostBase):
+    """Extended response for posts created from recordings that keep original audio"""
+
+    id: int
+    voice_file_path: Optional[str] = None
+    original_recording_url: Optional[str] = None
+    author: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class PostListResponse(BaseModel):
     posts: List[PostResponse]
     total: int
+
+
+# Audio/Recording schemas
+class AudioTranscriptionResponse(BaseModel):
+    """Response for audio transcription without creating a post"""
+
+    transcribed_text: str
+    confidence: Optional[float] = None
+
+
+class RecordingUploadResponse(BaseModel):
+    """Response for successful recording upload"""
+
+    message: str
+    file_url: str
+    transcribed_text: Optional[str] = None

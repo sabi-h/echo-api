@@ -417,12 +417,15 @@ async def create_post_from_recording(
         )
         await new_post.save()
 
-        # Get post with author info
-        post_with_author = (
-            await Post.select(Post.all_columns(), Post.author.all_columns()).where(Post.id == new_post.id).first()
-        )
+        # Get post data and add current user data
+        post_data = await Post.select().where(Post.id == new_post.id).first()
 
-        response_data = format_post_response(post_with_author, user_id)
+        # Add current user data to post_data
+        post_data["username"] = current_user["username"]
+        post_data["display_name"] = current_user.get("display_name") or current_user["username"]
+        post_data["avatar"] = current_user.get("avatar")
+
+        response_data = format_post_response(post_data, user_id)
         response_data["original_recording_url"] = original_audio_url
 
         return response_data

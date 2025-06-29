@@ -23,8 +23,13 @@ def get_password_hash(password):
 
 
 async def get_user_by_username(username: str):
-    user = await User.select().where(User.username == username).first()
-    return user
+    try:
+        user = await User.select().where(User.username == username).first()
+        print(f"Database query result for {username}: {user}")
+        return user
+    except Exception as e:
+        print(f"Database error: {e}")
+        return None
 
 
 async def get_user_by_id(user_id: int):

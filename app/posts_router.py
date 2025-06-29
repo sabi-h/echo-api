@@ -1,15 +1,20 @@
 # app/routers/posts.py
 from fastapi import APIRouter, Depends, HTTPException, status, Form, File, UploadFile
-from typing import Optional
+from typing import Optional, List
 import uuid
 import os
 import httpx
 import tempfile
 from datetime import datetime
-from app.tables import Post, User
+from app.tables import Post, User, PostLike
 from app import schemas
 from app.dependencies import get_current_user
 from supabase import create_client, Client
+import mutagen
+from mutagen.mp3 import MP3
+from mutagen.wave import WAVE
+from mutagen.mp4 import MP4
+import random
 
 router = APIRouter()
 
@@ -27,6 +32,64 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Supported audio formats for recording (ElevenLabs supports these formats)
 SUPPORTED_AUDIO_FORMATS = {".mp3", ".wav", ".m4a", ".ogg", ".webm", ".mp4", ".mpeg", ".mpga", ".flac"}
+
+
+def get_audio_duration(file_path: str) -> Optional[float]:
+    """Get audio file duration in seconds using mutagen"""
+    try:
+        audio_file = mutagen.File(file_path)
+        if audio_file is not None:
+            return float(audio_file.info.length)
+        return None
+    except Exception as e:
+        print(f"Error getting audio duration: {e}")
+        return None
+
+
+def format_post_response(post, current_user_id: Optional[int] = None) -> dict:
+    """Format post data to match frontend interface"""
+
+    # Since we're using Post.select(Post.all_columns(), Post.author.all_columns())
+    # The author data should be directly accessible in the post object
+    username = post.get("username", "unknown")
+    display_name = post.get("display_name") or username
+    avatar = post.get("avatar") or f"https://api.dicebear.com/7.x/avataaars/svg?seed={username}"
+
+    # Format timestamp
+    created_at = post.get("created_at")
+    if isinstance(created_at, datetime):
+        timestamp = created_at.isoformat()
+    else:
+        timestamp = str(created_at) if created_at else datetime.now().isoformat()
+
+    # Handle tags - ensure it's a proper list
+    tags = post.get("tags", [])
+    if isinstance(tags, str):
+        try:
+            import json
+
+            tags = json.loads(tags)
+        except:
+            tags = []
+    elif not isinstance(tags, list):
+        tags = []
+
+    return {
+        "id": str(post["id"]),
+        "username": username,
+        "display_name": display_name,
+        "avatar": avatar,
+        "audio_url": post.get("voice_file_path") or "",
+        "duration": post.get("duration") or 0.0,
+        "voice_style": post.get("voice_style") or "natural",
+        "likes": post.get("likes") or 0,
+        "timestamp": timestamp,
+        "is_liked": False,  # Will be set properly in endpoints
+        "tags": tags,
+        "content": post.get("text_content") or "",
+        "created_at": created_at if isinstance(created_at, datetime) else datetime.now(),
+        "listen_count": post.get("listen_count") or random.randint(1, 100),
+    }
 
 
 async def transcribe_audio_to_text(audio_file_path: str) -> Optional[str]:
@@ -65,20 +128,27 @@ async def transcribe_audio_to_text(audio_file_path: str) -> Optional[str]:
         return None
 
 
-async def generate_voice_from_text(text: str) -> Optional[str]:
+async def generate_voice_from_text(text: str, voice_style: str = "natural") -> tuple[Optional[str], Optional[float]]:
     """Generate voice using ElevenLabs and upload to Supabase Storage"""
     if not text or not text.strip():
-        return None
+        return None, None
 
     try:
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
 
         headers = {"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": ELEVENLABS_API_KEY}
 
+        # Adjust voice settings based on style
+        voice_settings = {"stability": 0.5, "similarity_boost": 0.5}
+        if voice_style == "energetic":
+            voice_settings = {"stability": 0.3, "similarity_boost": 0.7}
+        elif voice_style == "calm":
+            voice_settings = {"stability": 0.8, "similarity_boost": 0.3}
+
         data = {
             "text": text,
             "model_id": "eleven_monolingual_v1",
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.5},
+            "voice_settings": voice_settings,
         }
 
         async with httpx.AsyncClient() as client:
@@ -91,24 +161,23 @@ async def generate_voice_from_text(text: str) -> Optional[str]:
                 unique_filename = f"voice_{uuid.uuid4()}.mp3"
 
                 # Save to temporary file
-                import tempfile
-
                 with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
                     temp_file.write(audio_content)
                     temp_file_path = temp_file.name
 
                 try:
+                    # Get duration before uploading
+                    duration = get_audio_duration(temp_file_path) or 0.0
+
                     # Upload from file path
                     with open(temp_file_path, "rb") as f:
                         upload_response = supabase.storage.from_(BUCKET_NAME).upload(
                             path=unique_filename, file=f, file_options={"content-type": "audio/mpeg"}
                         )
 
-                        print(upload_response)
-
                     # Get public URL
                     public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(unique_filename)
-                    return public_url
+                    return public_url, duration
 
                 finally:
                     # Clean up temporary file
@@ -116,11 +185,11 @@ async def generate_voice_from_text(text: str) -> Optional[str]:
 
             else:
                 print(f"ElevenLabs API error: {response.status_code}")
-                return None
+                return None, None
 
     except Exception as e:
         print(f"Error generating voice: {e}")
-        return None
+        return None, None
 
 
 async def delete_voice_file(file_url: str):
@@ -142,6 +211,50 @@ def validate_audio_file(file: UploadFile) -> bool:
 
     file_extension = os.path.splitext(file.filename.lower())[1]
     return file_extension in SUPPORTED_AUDIO_FORMATS
+
+
+def generate_random_tags() -> List[str]:
+    """Generate 1-3 random tags for posts"""
+    available_tags = [
+        "music",
+        "podcast",
+        "story",
+        "news",
+        "tech",
+        "ai",
+        "creative",
+        "funny",
+        "inspiration",
+        "motivation",
+        "lifestyle",
+        "health",
+        "fitness",
+        "food",
+        "travel",
+        "business",
+        "education",
+        "entertainment",
+        "gaming",
+        "sports",
+        "art",
+        "science",
+        "nature",
+        "books",
+        "movies",
+        "coding",
+        "startup",
+        "productivity",
+        "mindfulness",
+        "social",
+        "family",
+        "work",
+        "hobby",
+    ]
+
+    import random
+
+    num_tags = random.randint(1, 3)  # 1 to 3 tags
+    return random.sample(available_tags, num_tags)
 
 
 @router.post("/transcribe", response_model=schemas.AudioTranscriptionResponse)
@@ -199,33 +312,40 @@ async def transcribe_audio_only(
 @router.post("/", response_model=schemas.PostResponse)
 async def create_post(
     content: str = Form(...),
+    voice_style: Optional[str] = Form("natural"),
     current_user: User = Depends(get_current_user),
 ):
     """Create post from text content"""
     if not content or not content.strip():
         raise HTTPException(status_code=400, detail="Text content is required")
 
+    # Generate random tags
+    tag_list = generate_random_tags()
+
     # Generate voice from text using ElevenLabs
-    voice_file_url = await generate_voice_from_text(content)
+    voice_file_url, duration = await generate_voice_from_text(content, voice_style)
 
     # Create post in database
     user_id = current_user["id"] if isinstance(current_user, dict) else current_user.id
-    new_post = Post(text_content=content.strip(), voice_file_path=voice_file_url, author=user_id)
+    new_post = Post(
+        text_content=content.strip(),
+        voice_file_path=voice_file_url,
+        duration=duration or 0.0,
+        voice_style=voice_style,
+        tags=tag_list,
+        author=user_id,
+    )
     await new_post.save()
 
-    # Get post with author info
-    post_with_author = (
-        await Post.select(Post.all_columns(), Post.author.all_columns()).where(Post.id == new_post.id).first()
-    )
+    # Get post with author info - but manually combine the data
+    post_data = await Post.select().where(Post.id == new_post.id).first()
 
-    return {
-        "id": post_with_author["id"],
-        "text_content": post_with_author["text_content"],
-        "voice_file_path": post_with_author["voice_file_path"],
-        "author": post_with_author["author"],
-        "created_at": post_with_author["created_at"],
-        "updated_at": post_with_author["updated_at"],
-    }
+    # Add current user data to post_data
+    post_data["username"] = current_user["username"]
+    post_data["display_name"] = current_user.get("display_name") or current_user["username"]
+    post_data["avatar"] = current_user.get("avatar")
+
+    return format_post_response(post_data, user_id)
 
 
 @router.post("/from-recording", response_model=schemas.PostResponseWithOriginal)
@@ -254,6 +374,9 @@ async def create_post_from_recording(
             temp_file.write(content)
             temp_file_path = temp_file.name
 
+        # Get duration of original audio
+        duration = get_audio_duration(temp_file_path) or 0.0
+
         # Transcribe audio to text
         transcribed_text = await transcribe_audio_to_text(temp_file_path)
 
@@ -262,6 +385,9 @@ async def create_post_from_recording(
 
         if not transcribed_text.strip():
             raise HTTPException(status_code=400, detail="No speech detected in the audio file")
+
+        # Generate random tags
+        tag_list = generate_random_tags()
 
         # Upload original recording to Supabase Storage
         original_audio_url = None
@@ -283,7 +409,10 @@ async def create_post_from_recording(
         user_id = current_user["id"] if isinstance(current_user, dict) else current_user.id
         new_post = Post(
             text_content=transcribed_text.strip(),
-            voice_file_path=original_audio_url,  # Store original recording instead of generated voice
+            voice_file_path=original_audio_url,  # Store original recording
+            duration=duration,
+            voice_style="original",  # Mark as original recording
+            tags=tag_list,
             author=user_id,
         )
         await new_post.save()
@@ -293,15 +422,10 @@ async def create_post_from_recording(
             await Post.select(Post.all_columns(), Post.author.all_columns()).where(Post.id == new_post.id).first()
         )
 
-        return {
-            "id": post_with_author["id"],
-            "text_content": post_with_author["text_content"],
-            "voice_file_path": post_with_author["voice_file_path"],
-            "original_recording_url": original_audio_url,
-            "author": post_with_author["author"],
-            "created_at": post_with_author["created_at"],
-            "updated_at": post_with_author["updated_at"],
-        }
+        response_data = format_post_response(post_with_author, user_id)
+        response_data["original_recording_url"] = original_audio_url
+
+        return response_data
 
     except HTTPException:
         raise
@@ -319,7 +443,11 @@ async def create_post_from_recording(
 
 
 @router.get("/", response_model=schemas.PostListResponse)
-async def get_posts(skip: int = 0, limit: int = 10):
+async def get_posts(skip: int = 0, limit: int = 10, current_user: User = Depends(get_current_user)):
+    # Get current user ID for like status
+    user_id = current_user["id"] if isinstance(current_user, dict) else current_user.id
+
+    # Get posts with author info - Piccolo handles joins automatically
     posts = (
         await Post.select(Post.all_columns(), Post.author.all_columns())
         .offset(skip)
@@ -329,18 +457,21 @@ async def get_posts(skip: int = 0, limit: int = 10):
 
     total = await Post.count()
 
+    # Check which posts the current user liked
+    if posts:
+        post_ids = [post["id"] for post in posts]
+        liked_posts = await PostLike.select(PostLike.post).where(
+            (PostLike.user == user_id) & (PostLike.post.is_in(post_ids))
+        )
+        liked_post_ids = {like["post"] for like in liked_posts}
+    else:
+        liked_post_ids = set()
+
     formatted_posts = []
     for post in posts:
-        formatted_posts.append(
-            {
-                "id": post["id"],
-                "text_content": post["text_content"],
-                "voice_file_path": post["voice_file_path"],
-                "author": post["author"],
-                "created_at": post["created_at"],
-                "updated_at": post["updated_at"],
-            }
-        )
+        formatted_post = format_post_response(post, user_id)
+        formatted_post["is_liked"] = post["id"] in liked_post_ids
+        formatted_posts.append(formatted_post)
 
     return {"posts": formatted_posts, "total": total}
 
@@ -359,37 +490,76 @@ async def get_my_posts(skip: int = 0, limit: int = 10, current_user=Depends(get_
 
     total = await Post.count().where(Post.author == user_id)
 
+    # All user's own posts are considered "liked" for UI purposes
     formatted_posts = []
     for post in posts:
-        formatted_posts.append(
-            {
-                "id": post["id"],
-                "text_content": post["text_content"],
-                "voice_file_path": post["voice_file_path"],
-                "author": post["author"],
-                "created_at": post["created_at"],
-                "updated_at": post["updated_at"],
-            }
-        )
+        formatted_post = format_post_response(post, user_id)
+        formatted_post["is_liked"] = True  # User's own posts
+        formatted_posts.append(formatted_post)
 
     return {"posts": formatted_posts, "total": total}
 
 
 @router.get("/{post_id}", response_model=schemas.PostResponse)
-async def get_post(post_id: int):
+async def get_post(post_id: int, current_user: User = Depends(get_current_user)):
+    user_id = current_user["id"] if isinstance(current_user, dict) else current_user.id
+
     post = await Post.select(Post.all_columns(), Post.author.all_columns()).where(Post.id == post_id).first()
 
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    return {
-        "id": post["id"],
-        "text_content": post["text_content"],
-        "voice_file_path": post["voice_file_path"],
-        "author": post["author"],
-        "created_at": post["created_at"],
-        "updated_at": post["updated_at"],
-    }
+    # Check if user liked this post
+    liked = await PostLike.select().where((PostLike.user == user_id) & (PostLike.post == post_id)).first()
+
+    formatted_post = format_post_response(post, user_id)
+    formatted_post["is_liked"] = liked is not None
+
+    return formatted_post
+
+
+@router.post("/{post_id}/like", response_model=schemas.LikeResponse)
+async def toggle_like_post(post_id: int, current_user: User = Depends(get_current_user)):
+    user_id = current_user["id"] if isinstance(current_user, dict) else current_user.id
+
+    # Check if post exists
+    post = await Post.select().where(Post.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # Check if user already liked this post
+    existing_like = await PostLike.select().where((PostLike.user == user_id) & (PostLike.post == post_id)).first()
+
+    if existing_like:
+        # Unlike the post
+        await existing_like.remove()
+        await Post.update({Post.likes: Post.likes - 1}).where(Post.id == post_id)
+        is_liked = False
+        message = "Post unliked"
+    else:
+        # Like the post
+        new_like = PostLike(user=user_id, post=post_id)
+        await new_like.save()
+        await Post.update({Post.likes: Post.likes + 1}).where(Post.id == post_id)
+        is_liked = True
+        message = "Post liked"
+
+    # Get updated like count
+    updated_post = await Post.select().where(Post.id == post_id).first()
+    total_likes = updated_post["likes"]
+
+    return {"message": message, "is_liked": is_liked, "total_likes": total_likes}
+
+
+@router.post("/{post_id}/listen")
+async def increment_listen_count(post_id: int):
+    """Increment the listen count for a post"""
+    post = await Post.select().where(Post.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    await Post.update({Post.listen_count: Post.listen_count + 1}).where(Post.id == post_id)
+    return {"message": "Listen count updated"}
 
 
 @router.delete("/{post_id}")
@@ -403,10 +573,14 @@ async def delete_post(post_id: int, current_user=Depends(get_current_user)):
     if post["author"] != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this post")
 
+    # Delete related likes first
+    await PostLike.delete().where(PostLike.post == post_id)
+
     # Delete voice file from Supabase Storage if exists
     if post["voice_file_path"]:
         await delete_voice_file(post["voice_file_path"])
 
+    # Delete the post
     await post.remove()
 
     return {"message": "Post deleted successfully"}

@@ -1,5 +1,4 @@
 import os
-from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 from piccolo.conf.apps import AppConfig
 
 CURRENT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
@@ -10,6 +9,7 @@ APP_CONFIG = AppConfig(
     table_classes=[
         "app.tables.User",
         "app.tables.Post",
+        "app.tables.PostLike",
     ],
     migration_dependencies=[],
     commands=[],

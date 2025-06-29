@@ -16,7 +16,14 @@ async def register_user(user: schemas.UserCreate):
 
     # Create new user
     new_user = await auth.create_user(user=user)
-    return new_user.to_dict()
+    return {
+        "id": new_user.id,
+        "username": new_user.username,
+        "display_name": new_user.display_name,
+        "avatar": new_user.avatar,
+        "is_active": new_user.is_active,
+        "created_at": new_user.created_at,
+    }
 
 
 @router.post("/login", response_model=schemas.Token)
@@ -35,11 +42,30 @@ async def login_user(login_data: schemas.LoginRequest):
 
 @router.get("/me", response_model=schemas.UserResponse)
 async def read_users_me(current_user: User = Depends(get_current_user)):
-    return current_user
+    return {
+        "id": current_user["id"],
+        "username": current_user["username"],
+        "display_name": current_user.get("display_name"),
+        "avatar": current_user.get("avatar"),
+        "is_active": current_user.get("is_active", True),
+        "created_at": current_user["created_at"],
+    }
 
 
 @router.get("/users", response_model=list[schemas.UserResponse])
 async def get_all_users(current_user: User = Depends(get_current_user)):
     """Get all users - requires authentication"""
     users = await User.select()
-    return users
+    formatted_users = []
+    for user in users:
+        formatted_users.append(
+            {
+                "id": user["id"],
+                "username": user["username"],
+                "display_name": user.get("display_name"),
+                "avatar": user.get("avatar"),
+                "is_active": user.get("is_active", True),
+                "created_at": user["created_at"],
+            }
+        )
+    return formatted_users

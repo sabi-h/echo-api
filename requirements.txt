@@ -29,6 +29,7 @@ inflection==0.5.1
 iniconfig==2.1.0
 Jinja2==3.1.6
 MarkupSafe==3.0.2
+mutagen==1.47.0
 mypy_extensions==1.1.0
 packaging==25.0
 passlib==1.7.4

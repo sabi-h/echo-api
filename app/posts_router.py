@@ -450,15 +450,17 @@ async def get_posts(skip: int = 0, limit: int = 10, current_user: User = Depends
     # Get current user ID for like status
     user_id = current_user["id"] if isinstance(current_user, dict) else current_user.id
 
-    # Get posts with author info - Piccolo handles joins automatically
-    posts = (
-        await Post.select(Post.all_columns(), Post.author.all_columns())
-        .offset(skip)
-        .limit(limit)
-        .order_by(Post.created_at, ascending=False)
-    )
+    # Get posts without join
+    posts = await Post.select().offset(skip).limit(limit).order_by(Post.created_at, ascending=False)
 
     total = await Post.count()
+
+    # Get all unique author IDs
+    author_ids = list(set(post["author"] for post in posts))
+
+    # Fetch all authors in one query
+    authors = await User.select().where(User.id.is_in(author_ids))
+    authors_dict = {author["id"]: author for author in authors}
 
     # Check which posts the current user liked
     if posts:
@@ -472,6 +474,18 @@ async def get_posts(skip: int = 0, limit: int = 10, current_user: User = Depends
 
     formatted_posts = []
     for post in posts:
+        # Add author data to post
+        author = authors_dict.get(post["author"])
+        if author:
+            post["username"] = author["username"]
+            post["display_name"] = author.get("display_name") or author["username"]
+            post["avatar"] = author.get("avatar")
+        else:
+            # Fallback if author not found
+            post["username"] = "unknown"
+            post["display_name"] = "Unknown User"
+            post["avatar"] = "https://api.dicebear.com/7.x/avataaars/svg?seed=unknown"
+
         formatted_post = format_post_response(post, user_id)
         formatted_post["is_liked"] = post["id"] in liked_post_ids
         formatted_posts.append(formatted_post)
@@ -484,7 +498,7 @@ async def get_my_posts(skip: int = 0, limit: int = 10, current_user=Depends(get_
     user_id = current_user["id"] if isinstance(current_user, dict) else current_user.id
 
     posts = (
-        await Post.select(Post.all_columns(), Post.author.all_columns())
+        await Post.select()
         .where(Post.author == user_id)
         .offset(skip)
         .limit(limit)
@@ -493,9 +507,14 @@ async def get_my_posts(skip: int = 0, limit: int = 10, current_user=Depends(get_
 
     total = await Post.count().where(Post.author == user_id)
 
-    # All user's own posts are considered "liked" for UI purposes
+    # All user's own posts - add current user data directly
     formatted_posts = []
     for post in posts:
+        # Add current user data to post
+        post["username"] = current_user["username"]
+        post["display_name"] = current_user.get("display_name") or current_user["username"]
+        post["avatar"] = current_user.get("avatar")
+
         formatted_post = format_post_response(post, user_id)
         formatted_post["is_liked"] = True  # User's own posts
         formatted_posts.append(formatted_post)
@@ -507,10 +526,22 @@ async def get_my_posts(skip: int = 0, limit: int = 10, current_user=Depends(get_
 async def get_post(post_id: int, current_user: User = Depends(get_current_user)):
     user_id = current_user["id"] if isinstance(current_user, dict) else current_user.id
 
-    post = await Post.select(Post.all_columns(), Post.author.all_columns()).where(Post.id == post_id).first()
+    post = await Post.select().where(Post.id == post_id).first()
 
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
+
+    # Get the author data
+    author = await User.select().where(User.id == post["author"]).first()
+    if author:
+        post["username"] = author["username"]
+        post["display_name"] = author.get("display_name") or author["username"]
+        post["avatar"] = author.get("avatar")
+    else:
+        # Fallback if author not found
+        post["username"] = "unknown"
+        post["display_name"] = "Unknown User"
+        post["avatar"] = "https://api.dicebear.com/7.x/avataaars/svg?seed=unknown"
 
     # Check if user liked this post
     liked = await PostLike.select().where((PostLike.user == user_id) & (PostLike.post == post_id)).first()

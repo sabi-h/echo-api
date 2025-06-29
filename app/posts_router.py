@@ -27,6 +27,7 @@ BUCKET_NAME = "echo-voice-notes"
 # ElevenLabs Configuration
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "your-elevenlabs-api-key")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Default voice
+# ELEVENLABS_VOICE_ID = "4cyB2A28b75DWiJqvXcI"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -128,13 +129,18 @@ async def transcribe_audio_to_text(audio_file_path: str) -> Optional[str]:
         return None
 
 
-async def generate_voice_from_text(text: str, voice_style: str = "natural") -> tuple[Optional[str], Optional[float]]:
+async def generate_voice_from_text(
+    text: str, voice_style: str = "natural", username: str = None
+) -> tuple[Optional[str], Optional[float]]:
     """Generate voice using ElevenLabs and upload to Supabase Storage"""
     if not text or not text.strip():
         return None, None
 
     try:
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
+        # Use specific voice ID for "nat" username, otherwise use default
+        voice_id = "4cyB2A28b75DWiJqvXcI" if username == "nat" else ELEVENLABS_VOICE_ID
+
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
         headers = {"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": ELEVENLABS_API_KEY}
 
@@ -322,8 +328,11 @@ async def create_post(
     # Generate random tags
     tag_list = generate_random_tags()
 
+    # Get username for voice selection
+    username = current_user["username"] if isinstance(current_user, dict) else current_user.username
+
     # Generate voice from text using ElevenLabs
-    voice_file_url, duration = await generate_voice_from_text(content, voice_style)
+    voice_file_url, duration = await generate_voice_from_text(content, voice_style, username)
 
     # Create post in database
     user_id = current_user["id"] if isinstance(current_user, dict) else current_user.id

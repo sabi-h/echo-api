@@ -9,7 +9,7 @@ import os
 # Security configurations
 SECRET_KEY = os.getenv("SECRET_KEY", "wkvnuivhjsbjsbhjfnsiufvhewhfjsfnedhjshjbshjdkkdnfjewds")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "2400"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -39,7 +39,18 @@ async def get_user_by_id(user_id: int):
 
 async def create_user(user: schemas.UserCreate):
     hashed_password = get_password_hash(user.password)
-    new_user = User(username=user.username, hashed_password=hashed_password)
+
+    # Generate avatar URL if not provided
+    avatar_url = user.avatar
+    if not avatar_url:
+        avatar_url = f"https://api.dicebear.com/7.x/avataaars/svg?seed={user.username}"
+
+    # Use display_name if provided, otherwise use username
+    display_name = user.display_name if user.display_name else user.username
+
+    new_user = User(
+        username=user.username, hashed_password=hashed_password, display_name=display_name, avatar=avatar_url
+    )
     await new_user.save()
     return new_user
 

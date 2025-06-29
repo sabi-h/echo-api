@@ -10,10 +10,14 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    display_name: Optional[str] = None
+    avatar: Optional[str] = None
 
 
 class UserResponse(UserBase):
     id: int
+    display_name: Optional[str] = None
+    avatar: Optional[str] = None
     is_active: bool
     created_at: datetime
 
@@ -39,32 +43,51 @@ class LoginRequest(BaseModel):
 # Post schemas
 class PostBase(BaseModel):
     text_content: Optional[str] = None
+    voice_style: Optional[str] = "natural"
 
 
 class PostCreate(PostBase):
     pass
 
 
-class PostResponse(PostBase):
-    id: int
-    voice_file_path: Optional[str] = None
-    author: int
+class PostResponse(BaseModel):
+    id: str  # Convert to string as frontend expects
+    username: str
+    display_name: str
+    avatar: str
+    audio_url: str
+    duration: float
+    voice_style: str
+    likes: int
+    timestamp: str
+    is_liked: bool
+    tags: List[str]
+    content: str
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    listen_count: Optional[int] = 0
 
     class Config:
         from_attributes = True
 
 
-class PostResponseWithOriginal(PostBase):
+class PostResponseWithOriginal(BaseModel):
     """Extended response for posts created from recordings that keep original audio"""
 
-    id: int
-    voice_file_path: Optional[str] = None
+    id: str
+    username: str
+    display_name: str
+    avatar: str
+    audio_url: str
     original_recording_url: Optional[str] = None
-    author: int
+    duration: float
+    voice_style: str
+    likes: int
+    timestamp: str
+    is_liked: bool
+    tags: List[str]
+    content: str
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    listen_count: Optional[int] = 0
 
     class Config:
         from_attributes = True
@@ -89,3 +112,10 @@ class RecordingUploadResponse(BaseModel):
     message: str
     file_url: str
     transcribed_text: Optional[str] = None
+
+
+# Like schemas
+class LikeResponse(BaseModel):
+    message: str
+    is_liked: bool
+    total_likes: int

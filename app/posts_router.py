@@ -25,9 +25,8 @@ SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 BUCKET_NAME = "echo-voice-notes"
 
 # ElevenLabs Configuration
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "your-elevenlabs-api-key")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Default voice
-# ELEVENLABS_VOICE_ID = "4cyB2A28b75DWiJqvXcI"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
